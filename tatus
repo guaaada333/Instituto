@@ -1,0 +1,85 @@
+[1mdiff --git a/src/main/java/edu/instituto/security/SecurityConfig.java b/src/main/java/edu/instituto/security/SecurityConfig.java[m
+[1mindex b5dbe88..f7c3270 100644[m
+[1m--- a/src/main/java/edu/instituto/security/SecurityConfig.java[m
+[1m+++ b/src/main/java/edu/instituto/security/SecurityConfig.java[m
+[36m@@ -2,16 +2,76 @@[m [mpackage edu.instituto.security;[m
+ [m
+ import org.springframework.context.annotation.Bean;[m
+ import org.springframework.context.annotation.Configuration;[m
+[32m+[m[32mimport org.springframework.http.HttpMethod;[m
+[32m+[m[32mimport org.springframework.http.HttpStatus;[m
+[32m+[m[32mimport org.springframework.security.authentication.AuthenticationManager;[m
+[32m+[m[32mimport org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;[m
+ import org.springframework.security.config.annotation.web.builders.HttpSecurity;[m
+[32m+[m[32mimport org.springframework.security.config.http.SessionCreationPolicy;[m
+[32m+[m[32mimport org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;[m
+[32m+[m[32mimport org.springframework.security.crypto.password.PasswordEncoder;[m
+ import org.springframework.security.web.SecurityFilterChain;[m
+[32m+[m[32mimport org.springframework.security.web.authentication.HttpStatusEntryPoint;[m
+ [m
+[32m+[m[32mimport static edu.instituto.security.Roles.*;[m
+[32m+[m
+[32m+[m[32m// Autenticación por sesión (login con usuario y contraseña) + autorización por rol (RF01, RF03, RNF01, RNF02).[m
+ @Configuration[m
+ public class SecurityConfig {[m
+ [m
+[32m+[m[32m    // RNF01: las contraseñas se guardan con hash BCrypt, nunca en texto plano.[m
+[32m+[m[32m    @Bean[m
+[32m+[m[32m    PasswordEncoder passwordEncoder() {[m
+[32m+[m[32m        return new BCryptPasswordEncoder();[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    @Bean[m
+[32m+[m[32m    AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {[m
+[32m+[m[32m        return config.getAuthenticationManager();[m
+[32m+[m[32m    }[m
+[32m+[m
+     @Bean[m
+     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {[m
+[31m-        http.csrf(csrf -> csrf.disable())[m
+[31m-            .authorizeHttpRequests(a -> a.anyRequest().permitAll());[m
+[32m+[m[32m        http[m
+[32m+[m[32m            // CSRF desactivado: el frontend consume una API REST con JSON. Revisar si el frontend se sirve desde otro origen.[m
+[32m+[m[32m            .csrf(csrf -> csrf.disable())[m
+[32m+[m[32m            .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))[m
+[32m+[m[32m            // Sin sesión devuelve 401 (en vez de redirigir a un formulario HTML).[m
+[32m+[m[32m            .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))[m
+[32m+[m[32m            .authorizeHttpRequests(a -> a[m
+[32m+[m[32m                // --- Login / sesión ---[m
+[32m+[m[32m                .requestMatchers("/api/auth/login").permitAll()[m
+[32m+[m[32m                .requestMatchers("/api/auth/**").authenticated()[m
+[32m+[m
+[32m+[m[32m                // --- Usuarios: solo el administrador (RF02) ---[m
+[32m+[m[32m                .requestMatchers("/api/usuarios/**").hasRole(ADMIN)[m
+[32m+[m
+[32m+[m[32m                // --- Matrículas y cuotas ---[m
+[32m+[m[32m                // El alumno solo ve lo suyo (RN17, RF29): estos endpoints toman el alumno desde la sesión.[m
+[32m+[m[32m                .requestMatchers(HttpMethod.GET, "/api/matriculas/mis-matriculas",[m
+[32m+[m[32m                        "/api/cuotas/mis-cuotas", "/api/cuotas/mi-deuda").hasRole(ALUMNO)[m
+[32m+[m[32m                .requestMatchers("/api/matriculas/**", "/api/cuotas/**").hasAnyRole(ADMIN, ADMINISTRATIVO)[m
+[32m+[m
+[32m+[m[32m                // --- Módulos académicos ya existentes ---[m
+[32m+[m[32m                .requestMatchers(HttpMethod.GET, "/api/alumnos/**", "/api/profesores/**")[m
+[32m+[m[32m                    .hasAnyRole(ADMIN, ADMINISTRATIVO, DOCENTE)[m
+[32m+[m[32m                .requestMatchers("/api/alumnos/**").hasAnyRole(ADMIN, ADMINISTRATIVO)[m
+[32m+[m[32m                .requestMatchers("/api/profesores/**").hasRole(ADMIN)[m
+[32m+[m
+[32m+[m[32m                .requestMatchers(HttpMethod.GET, "/api/materias/**", "/api/ciclos-lectivos/**",[m
+[32m+[m[32m                        "/api/cursos/**", "/api/curso-materias/**").authenticated()[m
+[32m+[m[32m                .requestMatchers("/api/materias/**", "/api/ciclos-lectivos/**",[m
+[32m+[m[32m                        "/api/cursos/**", "/api/curso-materias/**").hasRole(ADMIN)[m
+[32m+[m
+[32m+[m[32m                .requestMatchers(HttpMethod.GET, "/api/inscripciones/**").hasAnyRole(ADMIN, ADMINISTRATIVO, DOCENTE)[m
+[32m+[m[32m                .requestMatchers("/api/inscripciones/**").hasAnyRole(ADMIN, ADMINISTRATIVO)[m
+[32m+[m
+[32m+[m[32m                .requestMatchers(HttpMethod.GET, "/api/evaluaciones/**", "/api/calificaciones/**")[m
+[32m+[m[32m                    .hasAnyRole(ADMIN, DOCENTE)[m
+[32m+[m[32m                .requestMatchers("/api/evaluaciones/**", "/api/calificaciones/**").hasRole(DOCENTE)[m
+[32m+[m
+[32m+[m[32m                // Todo lo que no esté listado arriba requiere estar logueado.[m
+[32m+[m[32m                .anyRequest().authenticated());[m
+         return http.build();[m
+     }[m
+[31m-}[m
+\ No newline at end of file[m
+[32m+[m[32m}[m
